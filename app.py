@@ -2,12 +2,9 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import os
-import shutil
 
 # --- CONFIGURATION ---
 CSV_FILE = 'audit_database.csv'
-ARCHIVE_FILE = 'archived_audits.csv'
-BACKUP_DIR = 'backups'
 ADMIN_PASSWORD = "ClinicalAudit2026"
 HOSPITAL_NAME = "Manchester University NHS Foundation Trust (CSS)"
 
@@ -15,130 +12,131 @@ COLUMNS = [
     "Audit_ID", "Audit_Type", "Site", "Department", "Site_Audit_Lead", "Audit_Title", 
     "Start_Date", "Project_Lead", "Project_Supervisor", "Status", 
     "Target_Date", "Bimonthly_Due", "Project_Lead_Update", 
-    "Site_Lead_Comment", "Audit_Dept_Comment", "QS_Comment", "Last_Updated"
+    "Site_Lead_Update", "Audit_Dept_Update", "QS_Update", "Last_Updated"
 ]
 
 # Initialize Environment
-for f in [CSV_FILE, ARCHIVE_FILE]:
-    if not os.path.exists(f):
-        pd.DataFrame(columns=COLUMNS).to_csv(f, index=False)
-if not os.path.exists(BACKUP_DIR):
-    os.makedirs(BACKUP_DIR)
+if not os.path.exists(CSV_FILE):
+    pd.DataFrame(columns=COLUMNS).to_csv(CSV_FILE, index=False)
 
-def load_data(file=CSV_FILE):
-    df = pd.read_csv(file)
+def load_data():
+    df = pd.read_csv(CSV_FILE)
     for col in COLUMNS:
         if col not in df.columns: df[col] = ""
     return df[COLUMNS]
 
-def save_data(df, file=CSV_FILE):
-    df.to_csv(file, index=False)
+def save_data(df):
+    df.to_csv(CSV_FILE, index=False)
 
-# --- SECURITY & ROLE MANAGEMENT ---
+# --- SECURITY ---
 if "auth_status" not in st.session_state:
     st.session_state["auth_status"] = False
-    st.session_state["user_role"] = None
-    st.session_state["username"] = None
 
 if not st.session_state["auth_status"]:
-    st.set_page_config(page_title="MFT Login", page_icon="🏥")
-    st.markdown(f"<div style='text-align: center; padding-top: 50px;'><h2 style='color: #005EB8;'>{HOSPITAL_NAME}</h2></div>", unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([1,1.5,1])
-    with col2:
-        with st.form("login_form"):
-            u_name = st.text_input("Username")
-            u_role = st.selectbox("Your Role", ["Project Lead", "Site Lead", "Audit Department", "Q&S Department"])
-            pwd = st.text_input("Department Password", type="password")
-            login_submit = st.form_submit_button("Access Portal")
-            
-            if login_submit:
-                if pwd == ADMIN_PASSWORD and u_name:
-                    st.session_state["auth_status"] = True
-                    st.session_state["user_role"] = u_role
-                    st.session_state["username"] = u_name
-                    st.rerun()
-                else:
-                    st.error("Invalid Credentials. Please enter username and correct password.")
+    st.set_page_config(page_title="MFT Login", layout="centered")
+    st.markdown(f"<h2 style='text-align: center; color: #005EB8;'>{HOSPITAL_NAME}</h2>", unsafe_allow_html=True)
+    with st.form("login"):
+        u_name = st.text_input("Username")
+        u_role = st.selectbox("Role", ["Project Lead", "Site Lead", "Audit Department", "Q&S Department"])
+        pwd = st.text_input("Password", type="password")
+        if st.form_submit_button("Login"):
+            if pwd == ADMIN_PASSWORD and u_name:
+                st.session_state["auth_status"] = True
+                st.session_state["user_role"] = u_role
+                st.session_state["username"] = u_name
+                st.rerun()
     st.stop()
 
 # --- APP START ---
-st.set_page_config(page_title="MFT Clinical Audit Portal", layout="wide")
+st.set_page_config(page_title="MFT Audit Portal", layout="wide")
+df = load_data()
 
-# Header with Role Badge
+# CSS for Fancy Header
 st.markdown(f"""
-    <div style="background: linear-gradient(90deg, #005EB8 0%, #003087 100%); padding: 20px; border-radius: 12px; color: white; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
-        <div>
-            <h1 style="margin: 0; font-family: Arial; font-size: 24px;">{HOSPITAL_NAME}</h1>
-            <p style="margin: 0; opacity: 0.85;">Welcome, {st.session_state['username']} ({st.session_state['user_role']})</p>
-        </div>
-        <div style="background: rgba(255,255,255,0.2); padding: 10px; border-radius: 8px; text-align: right;">
-            <span style="font-weight: bold;">Session Role:</span><br>{st.session_state['user_role']}
-        </div>
+    <div style="background: linear-gradient(90deg, #005EB8 0%, #003087 100%); padding: 20px; border-radius: 12px; color: white; margin-bottom: 20px;">
+        <h2 style="margin: 0;">{HOSPITAL_NAME}</h2>
+        <p style="margin: 0; opacity: 0.9;">User: {st.session_state['username']} | Role: {st.session_state['user_role']}</p>
     </div>
 """, unsafe_allow_html=True)
 
-df = load_data()
-
-tab1, tab2, tab3 = st.tabs(["📊 Live Register", "⚙️ Role-Based Updates", "📈 Analytics"])
+tab1, tab2, tab3 = st.tabs(["📊 Live Register", "⚙️ Manage Updates", "📈 Analytics"])
 
 with tab1:
-    # (Global Search and Overdue Toggle same as before)
+    # RESTORED FILTERS
+    with st.expander("🔍 Advanced Filters", expanded=True):
+        c1, c2, c3, c4 = st.columns(4)
+        with c1: f_site = st.multiselect("Site", ["ORC", "NMGH", "Wythenshawe"])
+        with c2: f_dept = st.multiselect("Department", ["Anaesthesia", "Critical Care", "DLM", "Radiology"])
+        with c3: f_stat = st.multiselect("Status", ["Registered", "Data Collection", "Analysis", "Drafting Report", "Completed"])
+        with c4: overdue_only = st.toggle("🚨 Overdue Only")
+
     view_df = df.copy()
-    st.dataframe(view_df, use_container_width=True, hide_index=True)
+    if f_site: view_df = view_df[view_df['Site'].isin(f_site)]
+    if f_dept: view_df = view_df[view_df['Department'].isin(f_dept)]
+    if f_stat: view_df = view_df[view_df['Status'].isin(f_stat)]
+    
+    if overdue_only and not view_df.empty:
+        view_df = view_df[(pd.to_datetime(view_df['Bimonthly_Due']).dt.date < date.today()) & (view_df['Status'] != 'Completed')]
+
+    # COLOR CODING LOGIC
+    def color_coding(row):
+        styles = [''] * len(row)
+        # Status Color Coding
+        status_colors = {
+            "Completed": "background-color: #d4edda; color: #155724;",     # Green
+            "Data Collection": "background-color: #fff3cd; color: #856404;", # Yellow
+            "Analysis": "background-color: #d1ecf1; color: #0c5460;",       # Blue
+            "Drafting Report": "background-color: #e2e3e5; color: #383d41;" # Grey
+        }
+        if row['Status'] in status_colors:
+            styles = [status_colors[row['Status']]] * len(row)
+        
+        # Overdue Date Highlighting (Red text for Bimonthly Due)
+        try:
+            due = pd.to_datetime(row['Bimonthly_Due']).date()
+            if due < date.today() and row['Status'] != "Completed":
+                styles = ['background-color: #f8d7da; color: #721c24; font-weight: bold;'] * len(row)
+        except: pass
+        return styles
+
+    st.dataframe(view_df.style.apply(color_coding, axis=1), use_container_width=True, hide_index=True)
 
 with tab2:
-    st.subheader(f"Data Management for {st.session_state['user_role']}s")
-    
-    # Logic to filter which fields are editable based on role
-    current_role = st.session_state['user_role']
-    
-    mode = st.radio("Task:", ["Update Existing Record", "Register New Audit"], horizontal=True)
-    
-    if mode == "Update Existing Record":
-        target_id = st.selectbox("Select Audit ID to update", df["Audit_ID"].tolist() if not df.empty else ["None"])
-        
-        if target_id != "None":
-            row = df[df["Audit_ID"] == target_id].iloc[0]
+    # Role-based editing (Update labels changed from "Comment" to "Update")
+    target_id = st.selectbox("Select Audit ID", ["None"] + df["Audit_ID"].tolist())
+    if target_id != "None":
+        row = df[df["Audit_ID"] == target_id].iloc[0]
+        role = st.session_state['user_role']
+        with st.form("update_form"):
+            st.write(f"Updating: **{row['Audit_Title']}**")
+            new_status = st.selectbox("Status", ["Registered", "Data Collection", "Analysis", "Drafting Report", "Completed"], 
+                                     index=["Registered", "Data Collection", "Analysis", "Drafting Report", "Completed"].index(row["Status"]))
             
-            with st.form("role_update_form"):
-                st.info(f"**Project:** {row['Audit_Title']}")
-                
-                # Everyone can see/update basic status if needed, or you can restrict this too
-                new_status = st.selectbox("Overall Status", ["Registered", "Data Collection", "Analysis", "Drafting Report", "Completed"], 
-                                         index=["Registered", "Data Collection", "Analysis", "Drafting Report", "Completed"].index(row["Status"]))
-                
-                # --- ROLE-BASED FIELD FILTERING ---
-                if current_role == "Project Lead":
-                    st.markdown("### 📝 Project Lead Section")
-                    p_upd = st.text_area("Project Lead Update", value=str(row['Project_Lead_Update']))
-                    # Hidden from this role for editing:
-                    s_com, a_com, q_com = row['Site_Lead_Comment'], row['Audit_Dept_Comment'], row['QS_Comment']
-                    
-                elif current_role == "Site Lead":
-                    st.markdown("### 🏢 Site Lead Section")
-                    s_com = st.text_area("Site Lead Comment", value=str(row['Site_Lead_Comment']))
-                    p_upd, a_com, q_com = row['Project_Lead_Update'], row['Audit_Dept_Comment'], row['QS_Comment']
-                    
-                elif current_role == "Audit Department":
-                    st.markdown("### 📂 Audit Department Section")
-                    a_com = st.text_area("Audit Dept Comment", value=str(row['Audit_Dept_Comment']))
-                    p_upd, s_com, q_com = row['Project_Lead_Update'], row['Site_Lead_Comment'], row['QS_Comment']
-                    
-                elif current_role == "Q&S Department":
-                    st.markdown("### 🛡️ Quality & Safety Section")
-                    q_com = st.text_area("Q&S Comment", value=str(row['QS_Comment']))
-                    p_upd, s_com, a_com = row['Project_Lead_Update'], row['Site_Lead_Comment'], row['Audit_Dept_Comment']
+            # Role-specific fields
+            p_upd = st.text_area("Project Lead Update", value=row['Project_Lead_Update']) if role == "Project Lead" or role == "Audit Department" else row['Project_Lead_Update']
+            s_upd = st.text_area("Site Lead Update", value=row['Site_Lead_Update']) if role == "Site Lead" or role == "Audit Department" else row['Site_Lead_Update']
+            a_upd = st.text_area("Audit Dept Update", value=row['Audit_Dept_Update']) if role == "Audit Department" else row['Audit_Dept_Update']
+            q_upd = st.text_area("QS Update", value=row['QS_Update']) if role == "Q&S Department" or role == "Audit Department" else row['QS_Update']
+            
+            if st.form_submit_button("Save Update"):
+                df.loc[df["Audit_ID"] == target_id, ["Status", "Project_Lead_Update", "Site_Lead_Update", "Audit_Dept_Update", "QS_Update", "Last_Updated"]] = \
+                    [new_status, p_upd, s_upd, a_upd, q_upd, datetime.now().strftime("%d/%m/%Y %H:%M")]
+                save_data(df)
+                st.success("Record Updated!")
+                st.rerun()
 
-                if st.form_submit_button("Save Role Update"):
-                    df.loc[df["Audit_ID"] == target_id, ["Status", "Project_Lead_Update", "Site_Lead_Comment", "Audit_Dept_Comment", "QS_Comment", "Last_Updated"]] = \
-                        [new_status, p_upd, s_com, a_com, q_com, datetime.now().strftime("%d/%m/%Y %H:%M")]
-                    save_data(df)
-                    st.success(f"Update saved as {current_role}")
-                    st.rerun()
-
-    elif mode == "Register New Audit":
-        # New Registration remains open to all roles, or restrict to Audit Dept only
-        if current_role != "Audit Department":
-            st.warning("Only the Audit Department should usually register new IDs. Proceed with caution.")
-        # [Registration form code...]
+with tab3:
+    st.subheader("📈 Visual Performance Metrics")
+    if not df.empty:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.write("**Project Volume by Site**")
+            st.bar_chart(df['Site'].value_counts())
+        with c2:
+            st.write("**Current Project Status**")
+            st.pie_chart(df['Status'].value_counts())
+        
+        st.write("**Workload by Department**")
+        st.bar_chart(df['Department'].value_counts())
+    else:
+        st.info("No data available for analytics yet.")
