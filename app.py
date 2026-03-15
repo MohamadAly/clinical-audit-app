@@ -8,8 +8,10 @@ CSV_FILE = 'audit_database.csv'
 ADMIN_PASSWORD = "ClinicalAudit2026"
 HOSPITAL_NAME = "Manchester University NHS Foundation Trust (CSS)"
 
-# Updated columns to include Last_Updated
-COLUMNS = ["Audit_ID", "Project_Title", "Lead_Auditor", "Status", "Start_Date", "Bimonthly_Due", "Comments", "Last_Updated"]
+# Internal columns (keeping ID/Title for backend logic)
+COLUMNS = ["Audit_ID", "Project_Title", "Lead_Auditor", "Status", "Bimonthly_Due", "Comments", "Start_Date", "Last_Updated"]
+# Columns to actually display to the user in the main table
+DISPLAY_COLS = ["Status", "Bimonthly_Due", "Comments", "Start_Date", "Last_Updated"]
 
 if not os.path.exists(CSV_FILE):
     df = pd.DataFrame(columns=COLUMNS)
@@ -31,11 +33,10 @@ def check_password():
         st.session_state["password_correct"] = False
     if not st.session_state["password_correct"]:
         st.markdown(f"<h2 style='text-align: center; color: #005EB8;'>{HOSPITAL_NAME}</h2>", unsafe_allow_html=True)
-        st.markdown("<h4 style='text-align: center;'>Clinical Audit Portal Login</h4>", unsafe_allow_html=True)
         col1, col2, col3 = st.columns([1,2,1])
         with col2:
-            pwd = st.text_input("Password", type="password")
-            if st.button("Access Portal"):
+            pwd = st.text_input("Department Password", type="password")
+            if st.button("Enter Portal"):
                 if pwd == ADMIN_PASSWORD:
                     st.session_state["password_correct"] = True
                     st.rerun()
@@ -45,59 +46,40 @@ def check_password():
     return True
 
 if check_password():
-    st.set_page_config(page_title="MFT Clinical Audit", layout="wide")
+    st.set_page_config(page_title="MFT CSS Audit", layout="wide")
 
-    # --- FANCY CSS HEADER ---
+    # --- BRANDING HEADER ---
     st.markdown(f"""
         <div style="background-color: #005EB8; padding: 20px; border-radius: 10px; margin-bottom: 25px;">
             <h1 style="color: white; margin: 0; font-family: Arial;">{HOSPITAL_NAME}</h1>
-            <p style="color: #E8EDF2; margin: 0;">Clinical Audit Department - Live Registration & Tracking</p>
+            <p style="color: #E8EDF2; margin: 0;">Clinical Audit Department - Workflow Tracker</p>
         </div>
     """, unsafe_allow_html=True)
     
     df = load_data()
 
-    # --- METRICS DASHBOARD ---
-    total_audits = len(df)
-    overdue_count = 0
-    if not df.empty:
-        overdue_count = len(df[(pd.to_datetime(df['Bimonthly_Due']).dt.date < date.today()) & (df['Status'] != 'Completed')])
-    completed_count = len(df[df['Status'] == 'Completed'])
-
+    # --- METRICS ---
     m1, m2, m3 = st.columns(3)
-    m1.metric("Total Registered", total_audits)
-    m2.metric("Overdue Bimonthly Updates", overdue_count, delta_color="inverse")
-    m3.metric("Completed Audits", completed_count)
+    m1.metric("Total Audits", len(df))
+    if not df.empty:
+        overdue = len(df[(pd.to_datetime(df['Bimonthly_Due']).dt.date < date.today()) & (df['Status'] != 'Completed')])
+        m2.metric("Overdue Updates", overdue, delta_color="inverse")
+    m3.metric("Completed", len(df[df['Status'] == 'Completed']))
 
-    st.divider()
-
-    tab1, tab2 = st.tabs(["📊 Audit Dashboard", "⚙️ Data Management"])
+    tab1, tab2 = st.tabs(["📊 Live Workflow View", "⚙️ Update Audit Record"])
 
     with tab1:
-        # --- ADVANCED FILTERING ---
-        with st.expander("🔍 Advanced Filters"):
-            f_col1, f_col2, f_col3 = st.columns(3)
-            with f_col1:
-                search_term = st.text_input("Search Title/ID")
-            with f_col2:
-                status_filter = st.multiselect("Filter by Status", options=df["Status"].unique().tolist())
-            with f_col3:
-                lead_filter = st.multiselect("Filter by Lead Auditor", options=df["Lead_Auditor"].unique().tolist())
-
-        # Apply Filters
+        # Filtering logic stays in the background
+        search = st.text_input("🔍 Search Comments or Project Title (Internal)")
+        
         filtered_df = df.copy()
-        if search_term:
-            filtered_df = filtered_df[filtered_df['Project_Title'].str.contains(search_term, case=False) | filtered_df['Audit_ID'].str.contains(search_term, case=False)]
-        if status_filter:
-            filtered_df = filtered_df[filtered_df['Status'].isin(status_filter)]
-        if lead_filter:
-            filtered_df = filtered_df[filtered_df['Lead_Auditor'].isin(lead_filter)]
+        if search:
+            # Allows searching by Title/Lead even if they aren't displayed in columns
+            filtered_df = filtered_df[filtered_df['Project_Title'].str.contains(search, case=False) | 
+                                    filtered_df['Comments'].str.contains(search, case=False)]
 
-        # --- DATA TABLE ---
         if not filtered_df.empty:
-            csv = filtered_df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Export Filtered List", csv, f"MFT_Audit_Export_{date.today()}.csv", "text/csv")
-
+            # Highlight Logic
             def highlight_overdue(row):
                 try:
                     deadline = pd.to_datetime(row['Bimonthly_Due']).date()
@@ -106,62 +88,62 @@ if check_password():
                     return [''] * len(row)
                 except: return [''] * len(row)
 
-            st.dataframe(filtered_df.style.apply(highlight_overdue, axis=1), use_container_width=True, hide_index=True)
+            # --- DISPLAY TABLE (Removed first 3 columns) ---
+            st.dataframe(
+                filtered_df[DISPLAY_COLS].style.apply(highlight_overdue, axis=1), 
+                use_container_width=True, 
+                hide_index=True
+            )
         else:
-            st.info("No records match your filters.")
+            st.info("No audit records found.")
 
     with tab2:
-        st.subheader("Add or Update Audit Records")
-        action = st.radio("Task Selection:", ["Register New Audit", "Update Existing Audit", "Delete Record"], horizontal=True)
+        st.subheader("Manage Record Data")
+        action = st.radio("Task:", ["Register New", "Update Status/Comments", "Delete"], horizontal=True)
         
-        with st.form("management_form"):
-            if action == "Register New Audit":
-                a_id = st.text_input("New Audit ID")
+        with st.form("audit_form"):
+            if action == "Register New":
+                a_id = st.text_input("Audit ID")
                 title = st.text_input("Project Title")
                 lead = st.text_input("Lead Auditor")
-                status = st.selectbox("Initial Status", ["Registered", "Data Collection", "Analysis", "Drafting Report", "Completed"])
+                status = st.selectbox("Current Status", ["Registered", "Data Collection", "Analysis", "Drafting Report", "Completed"])
+                b_date = st.date_input("Bimonthly Update Due")
+                comments = st.text_area("Initial Comments")
                 s_date = st.date_input("Start Date", value=date.today())
-                b_date = st.date_input("Next Bimonthly Update Due", value=date.today())
-                comments = st.text_area("Notes/Comments")
             
             else:
                 target_id = st.selectbox("Select Audit ID", df["Audit_ID"].tolist() if not df.empty else ["None"])
                 if not df.empty and target_id != "None":
                     row = df[df["Audit_ID"] == target_id].iloc[0]
-                    st.info(f"**Selected Record:** {target_id} - {row['Project_Title']}")
+                    st.info(f"**Selected:** {target_id} - {row['Project_Title']}")
                     status = st.selectbox("Update Status", ["Registered", "Data Collection", "Analysis", "Drafting Report", "Completed"], 
                                          index=["Registered", "Data Collection", "Analysis", "Drafting Report", "Completed"].index(row["Status"]))
-                    s_date = st.date_input("Update Start Date", value=pd.to_datetime(row["Start_Date"]).date())
                     b_date = st.date_input("Update Bimonthly Due", value=pd.to_datetime(row["Bimonthly_Due"]).date())
                     comments = st.text_area("Update Comments", value=str(row["Comments"]) if pd.notna(row["Comments"]) else "")
+                    s_date = st.date_input("Update Start Date", value=pd.to_datetime(row["Start_Date"]).date())
                     a_id, title, lead = target_id, row['Project_Title'], row['Lead_Auditor']
                 else:
-                    a_id, title, lead, status, s_date, b_date, comments = "", "", "", "Registered", date.today(), date.today(), ""
+                    a_id, title, lead, status, b_date, comments, s_date = "", "", "", "Registered", date.today(), "", date.today()
 
-            submitted = st.form_submit_button(f"Save Changes")
+            submitted = st.form_submit_button("Commit Changes")
 
         if submitted:
             now_ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-            if action == "Register New Audit":
-                if not a_id or not title:
-                    st.error("Audit ID and Title are required.")
-                elif a_id in df["Audit_ID"].values:
-                    st.error("Audit ID already exists.")
-                else:
-                    new_row = pd.DataFrame([[a_id, title, lead, status, s_date, b_date, comments, now_ts]], columns=COLUMNS)
-                    df = pd.concat([df, new_row], ignore_index=True)
-                    save_data(df)
-                    st.success("Audit Registered!")
-                    st.rerun()
-            
-            elif action == "Update Existing Audit" and target_id != "None":
-                df.loc[df["Audit_ID"] == target_id, ["Status", "Start_Date", "Bimonthly_Due", "Comments", "Last_Updated"]] = [status, s_date, b_date, comments, now_ts]
+            if action == "Register New":
+                new_row = pd.DataFrame([[a_id, title, lead, status, b_date, comments, s_date, now_ts]], columns=COLUMNS)
+                df = pd.concat([df, new_row], ignore_index=True)
                 save_data(df)
-                st.success("Record Updated!")
+                st.success("New audit registered!")
                 st.rerun()
             
-            elif action == "Delete Record" and target_id != "None":
+            elif action == "Update Status/Comments" and target_id != "None":
+                df.loc[df["Audit_ID"] == target_id, ["Status", "Bimonthly_Due", "Comments", "Start_Date", "Last_Updated"]] = [status, b_date, comments, s_date, now_ts]
+                save_data(df)
+                st.success("Record updated!")
+                st.rerun()
+            
+            elif action == "Delete" and target_id != "None":
                 df = df[df["Audit_ID"] != target_id]
                 save_data(df)
-                st.success("Record Deleted.")
+                st.success("Record removed.")
                 st.rerun()
