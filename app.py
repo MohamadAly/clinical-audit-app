@@ -13,7 +13,7 @@ ADMIN_PASSWORD = "ClinicalAudit2026"
 HOSPITAL_NAME = "MFT Clinical Support Services (CSS) - Cross-Site Portal"
 SESSION_TIMEOUT_MINUTES = 30 
 LOGO_URL = "https://i.postimg.cc/kgMv1mPr/Logo.png"
-BG_IMAGE_URL = "https://i.postimg.cc/mD3fR5k9/MMWW.png" # Direct link to your background image
+BG_IMAGE_URL = "https://i.postimg.cc/Y21Nt9pM/MMWW.png"
 
 COLUMNS = [
     "Audit_ID", "Audit_Type", "Site", "Department", "Site_Audit_Lead", "Audit_Title", 
@@ -51,7 +51,7 @@ def save_data(df):
     df.to_csv(CSV_FILE, index=False)
     shutil.copy(CSV_FILE, RECOVERY_FILE)
 
-# --- 3. CUSTOM STYLING (BACKGROUND & UI) ---
+# --- 3. CUSTOM STYLING ---
 def apply_custom_styling():
     st.markdown(f"""
         <style>
@@ -60,13 +60,11 @@ def apply_custom_styling():
             background-attachment: fixed;
             background-size: cover;
         }}
-        /* Semi-transparent white overlay to make content readable */
         .main .block-container {{
-            background-color: rgba(255, 255, 255, 0.9);
-            border-radius: 15px;
+            background-color: rgba(255, 255, 255, 0.92);
+            border-radius: 12px;
             padding: 2rem;
-            margin-top: 2rem;
-            margin-bottom: 2rem;
+            margin-top: 1rem;
         }}
         </style>
         """, unsafe_allow_html=True)
@@ -75,7 +73,10 @@ def apply_custom_styling():
 if not st.session_state["auth_status"]:
     st.set_page_config(page_title="CSS Audit Login", layout="centered")
     apply_custom_styling()
-    st.image(LOGO_URL, width=200)
+    # Logo at top right for Login
+    col_l, col_r = st.columns([0.8, 0.2])
+    with col_r: st.image(LOGO_URL, width=100)
+    
     st.markdown(f"<h2 style='color: #005EB8;'>{HOSPITAL_NAME}</h2>", unsafe_allow_html=True)
     with st.form("login"):
         u_name = st.text_input("Staff Name")
@@ -93,19 +94,18 @@ st.set_page_config(page_title="CSS Audit Portal", layout="wide")
 apply_custom_styling()
 df = load_data()
 
-# Header with Logo and Integrated Sign Out
-head_col1, head_col2, out_col = st.columns([0.15, 0.70, 0.15])
-with head_col1:
-    st.image(LOGO_URL, width=120)
-with head_col2:
+# Header Layout: Text Left, Logo Right, Sign Out Below Logo
+head_col, logo_col = st.columns([0.8, 0.2])
+with head_col:
     st.markdown(f"""
-        <div style="background: linear-gradient(90deg, #005EB8 0%, #009639 100%); padding: 10px; border-radius: 12px; color: white;">
-            <h3 style="margin: 0; font-size: 20px;">{HOSPITAL_NAME}</h3>
-            <p style="margin: 0; opacity: 0.9; font-size: 14px;">User: {st.session_state['username']} | Site: {st.session_state['user_site']}</p>
+        <div style="background: linear-gradient(90deg, #005EB8 0%, #009639 100%); padding: 15px; border-radius: 12px; color: white;">
+            <h3 style="margin: 0; font-size: 22px;">{HOSPITAL_NAME}</h3>
+            <p style="margin: 0; opacity: 0.9;">User: {st.session_state['username']} | Site: {st.session_state['user_site']}</p>
         </div>
     """, unsafe_allow_html=True)
 
-with out_col:
+with logo_col:
+    st.image(LOGO_URL, width=150)
     if st.button("🚪 Sign Out", use_container_width=True):
         st.session_state.update({"auth_status": False, "username": "", "user_role": "", "user_site": ""})
         st.rerun()
@@ -202,6 +202,6 @@ with tab3:
         with c2:
             st.plotly_chart(px.bar(view_df, x='Site', color='Status', title="Audits by Site"), use_container_width=True)
 
-# Footer Safety
+# Footer
 backup_time = datetime.fromtimestamp(os.path.getmtime(RECOVERY_FILE)).strftime("%H:%M:%S") if os.path.exists(RECOVERY_FILE) else "N/A"
-st.markdown(f"--- \n ✅ **Directorate Health:** Active | 🛡️ **Shadow Copy:** {backup_time} | ⏳ **Timeout:** {SESSION_TIMEOUT_MINUTES}m")      
+st.markdown(f"--- \n ✅ **Directorate Health:** Active | 🛡️ **Shadow Copy:** {backup_time}")
