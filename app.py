@@ -13,14 +13,16 @@ ADMIN_PASSWORD = "ClinicalAudit2026"
 HOSPITAL_NAME = "Manchester University NHS Foundation Trust (CSS)"
 SESSION_TIMEOUT_MINUTES = 30 
 
+# EXPANDED COLUMNS FOR COMPLETION DATA
 COLUMNS = [
     "Audit_ID", "Audit_Type", "Site", "Department", "Site_Audit_Lead", "Audit_Title", 
     "Start_Date", "Project_Lead", "Project_Supervisor", "Status", 
     "Target_Date", "Bimonthly_Due", "Project_Lead_Update", 
-    "Site_Lead_Update", "Audit_Dept_Update", "QS_Update", "Last_Updated"
+    "Site_Lead_Update", "Audit_Dept_Update", "QS_Update", "Last_Updated",
+    "Closing_Date", "Level_of_Assurance", "Reaudit_Date", "Improvement_Notes", "Key_Learning"
 ]
 
-# --- 1. INITIALIZE SESSION STATE (FIXED KEYERROR) ---
+# --- 1. INITIALIZE SESSION STATE ---
 if "auth_status" not in st.session_state:
     st.session_state["auth_status"] = False
 if "last_activity" not in st.session_state:
@@ -73,11 +75,7 @@ if not st.session_state["auth_status"]:
         pwd = st.text_input("Password", type="password")
         if st.form_submit_button("Access Portal"):
             if pwd == ADMIN_PASSWORD and u_name:
-                st.session_state.update({
-                    "auth_status": True, "username": u_name, 
-                    "user_role": u_role, "user_site": u_site, 
-                    "last_activity": time.time()
-                })
+                st.session_state.update({"auth_status": True, "username": u_name, "user_role": u_role, "user_site": u_site, "last_activity": time.time()})
                 st.rerun()
             else: st.error("Invalid Credentials")
     st.stop()
@@ -144,14 +142,26 @@ with tab2:
             with st.form("update_form"):
                 new_stat = st.selectbox("Status", ["Registered", "Data Collection", "Analysis", "Drafting Report", "Completed"], 
                                        index=["Registered", "Data Collection", "Analysis", "Drafting Report", "Completed"].index(row["Status"]))
+                
+                # STANDARD UPDATES
                 p_upd = st.text_area("Project Lead Update", value=row['Project_Lead_Update']) if role in ["Project Lead", "Audit Department"] else row['Project_Lead_Update']
                 s_upd = st.text_area("Site Lead Update", value=row['Site_Lead_Update']) if role in ["Site Lead", "Audit Department"] else row['Site_Lead_Update']
-                a_upd = st.text_area("Audit Dept Update", value=row['Audit_Dept_Update']) if role == "Audit Department" else row['Audit_Dept_Update']
-                q_upd = st.text_area("QS Update", value=row['QS_Update']) if role in ["Q&S Department", "Audit Department"] else row['QS_Update']
+                
+                # NEW: AUDIT CLOSURE SECTION (Only visible if Status is Completed)
+                st.markdown("---")
+                st.subheader("🏁 Audit Closure & Outcomes")
+                st.info("Fill this section only when the project reaches 'Completed' status.")
+                
+                c_date = st.date_input("Closing Date", value=date.today() if not row['Closing_Date'] else pd.to_datetime(row['Closing_Date']).date())
+                c_assur = st.selectbox("Level of Assurance", ["High", "Significant", "Moderate", "Limited", "None"], 
+                                      index=["High", "Significant", "Moderate", "Limited", "None"].index(row['Level_of_Assurance']) if row['Level_of_Assurance'] else 2)
+                c_reaudit = st.date_input("Scheduled Re-audit Date", value=date.today() + timedelta(days=365) if not row['Reaudit_Date'] else pd.to_datetime(row['Reaudit_Date']).date())
+                c_improve = st.text_area("Improvement/Changes identified (for Re-audits)", value=row['Improvement_Notes'], placeholder="What improved since the last cycle?")
+                c_learn = st.text_area("Key Learning/Recommendations", value=row['Key_Learning'], placeholder="Top 3 learning points...")
 
                 if st.form_submit_button("Submit Update"):
-                    df.loc[df["Audit_ID"] == target_id, ["Status", "Project_Lead_Update", "Site_Lead_Update", "Audit_Dept_Update", "QS_Update", "Last_Updated"]] = \
-                        [new_stat, p_upd, s_upd, a_upd, q_upd, datetime.now().strftime("%d/%m/%Y %H:%M")]
+                    df.loc[df["Audit_ID"] == target_id, ["Status", "Project_Lead_Update", "Site_Lead_Update", "Last_Updated", "Closing_Date", "Level_of_Assurance", "Reaudit_Date", "Improvement_Notes", "Key_Learning"]] = \
+                        [new_stat, p_upd, s_upd, datetime.now().strftime("%d/%m/%Y %H:%M"), c_date, c_assur, c_reaudit, c_improve, c_learn]
                     save_data(df); st.success("Database Synchronized"); st.rerun()
 
     else:
@@ -176,15 +186,22 @@ with tab2:
                 if approved == "No": st.error("🚫 MUST NOT PROCEED: Site Lead approval is mandatory.")
                 elif not n_id or not app_name: st.error("Missing Audit ID or Approver Name.")
                 else:
-                    new_row = [n_id, n_type, st.session_state['user_site'], n_dept, app_name, n_title, date.today(), n_lead, n_sup, "Registered", "", n_due, "", "", "", "", datetime.now().strftime("%d/%m/%Y")]
+                    new_row = [n_id, n_type, st.session_state['user_site'], n_dept, app_name, n_title, date.today(), n_lead, n_sup, "Registered", "", n_due, "", "", "", "", datetime.now().strftime("%d/%m/%Y"), "", "", "", "", ""]
                     df = pd.concat([df, pd.DataFrame([new_row], columns=COLUMNS)], ignore_index=True)
                     save_data(df); st.success("Audit Registered"); st.rerun()
 
 with tab3:
     st.subheader("📈 Analytics View")
     if not view_df.empty:
-        fig = px.pie(view_df, names='Status', title=f"Status Overview for {st.session_state['user_site']}")
-        st.plotly_chart(fig, use_container_width=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            fig1 = px.pie(view_df, names='Status', title=f"Status Overview")
+            st.plotly_chart(fig1, use_container_width=True)
+        with c2:
+            # New Analytics: Assurance Levels
+            if not view_df[view_df['Level_of_Assurance'] != ""].empty:
+                fig2 = px.bar(view_df[view_df['Level_of_Assurance'] != ""], x='Level_of_Assurance', title="Assurance Levels of Completed Audits", color='Level_of_Assurance')
+                st.plotly_chart(fig2, use_container_width=True)
 
 # Footer Safety Display
 backup_time = datetime.fromtimestamp(os.path.getmtime(RECOVERY_FILE)).strftime("%H:%M:%S") if os.path.exists(RECOVERY_FILE) else "N/A"
