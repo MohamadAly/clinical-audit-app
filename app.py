@@ -10,11 +10,11 @@ import time
 CSV_FILE = 'audit_database.csv'
 RECOVERY_FILE = 'audit_database_RECOVERY.csv'
 ADMIN_PASSWORD = "ClinicalAudit2026"
-# Updated to reflect unified CSS structure
 HOSPITAL_NAME = "MFT Clinical Support Services (CSS) - Cross-Site Portal"
 SESSION_TIMEOUT_MINUTES = 30 
+LOGO_URL = "https://i.postimg.cc/kgMv1mPr/Logo.png"
+BG_IMAGE_URL = "https://i.postimg.cc/mD3fR5k9/MMWW.png" # Direct link to your background image
 
-# THE 17 ESSENTIAL FIELDS PRESERVED
 COLUMNS = [
     "Audit_ID", "Audit_Type", "Site", "Department", "Site_Audit_Lead", "Audit_Title", 
     "Start_Date", "Project_Lead", "Project_Supervisor", "Status", 
@@ -51,13 +51,34 @@ def save_data(df):
     df.to_csv(CSV_FILE, index=False)
     shutil.copy(CSV_FILE, RECOVERY_FILE)
 
-# --- 3. LOGIN GATE ---
+# --- 3. CUSTOM STYLING (BACKGROUND & UI) ---
+def apply_custom_styling():
+    st.markdown(f"""
+        <style>
+        .stApp {{
+            background-image: url("{BG_IMAGE_URL}");
+            background-attachment: fixed;
+            background-size: cover;
+        }}
+        /* Semi-transparent white overlay to make content readable */
+        .main .block-container {{
+            background-color: rgba(255, 255, 255, 0.9);
+            border-radius: 15px;
+            padding: 2rem;
+            margin-top: 2rem;
+            margin-bottom: 2rem;
+        }}
+        </style>
+        """, unsafe_allow_html=True)
+
+# --- 4. LOGIN GATE ---
 if not st.session_state["auth_status"]:
     st.set_page_config(page_title="CSS Audit Login", layout="centered")
-    st.markdown(f"<h2 style='text-align: center; color: #005EB8;'>{HOSPITAL_NAME}</h2>", unsafe_allow_html=True)
+    apply_custom_styling()
+    st.image(LOGO_URL, width=200)
+    st.markdown(f"<h2 style='color: #005EB8;'>{HOSPITAL_NAME}</h2>", unsafe_allow_html=True)
     with st.form("login"):
         u_name = st.text_input("Staff Name")
-        # Included 'All Sites' for CSS central management
         u_site = st.selectbox("Primary Site", ["ORC", "NMGH", "Wythenshawe", "Trafford", "Cross-Site (CSS Central)"])
         u_role = st.selectbox("Role", ["Project Lead", "Site Lead", "Audit Department", "Q&S Department"])
         pwd = st.text_input("Password", type="password")
@@ -67,34 +88,42 @@ if not st.session_state["auth_status"]:
                 st.rerun()
     st.stop()
 
-# --- 4. MAIN INTERFACE ---
+# --- 5. MAIN INTERFACE ---
 st.set_page_config(page_title="CSS Audit Portal", layout="wide")
+apply_custom_styling()
 df = load_data()
 
-st.markdown(f"""
-    <div style="background: linear-gradient(90deg, #005EB8 0%, #009639 100%); padding: 15px; border-radius: 12px; color: white; margin-bottom: 20px;">
-        <h3 style="margin: 0;">{HOSPITAL_NAME}</h3>
-        <p style="margin: 0; opacity: 0.9;">System User: {st.session_state['username']} | Home Site: {st.session_state['user_site']} | Role: {st.session_state['user_role']}</p>
-    </div>
-""", unsafe_allow_html=True)
+# Header with Logo and Integrated Sign Out
+head_col1, head_col2, out_col = st.columns([0.15, 0.70, 0.15])
+with head_col1:
+    st.image(LOGO_URL, width=120)
+with head_col2:
+    st.markdown(f"""
+        <div style="background: linear-gradient(90deg, #005EB8 0%, #009639 100%); padding: 10px; border-radius: 12px; color: white;">
+            <h3 style="margin: 0; font-size: 20px;">{HOSPITAL_NAME}</h3>
+            <p style="margin: 0; opacity: 0.9; font-size: 14px;">User: {st.session_state['username']} | Site: {st.session_state['user_site']}</p>
+        </div>
+    """, unsafe_allow_html=True)
+
+with out_col:
+    if st.button("🚪 Sign Out", use_container_width=True):
+        st.session_state.update({"auth_status": False, "username": "", "user_role": "", "user_site": ""})
+        st.rerun()
 
 tab1, tab2, tab3 = st.tabs(["📊 CSS Registers", "⚙️ Actions & Registry", "📈 Directorate Analytics"])
 
 with tab1:
-    # FILTERS
     with st.expander("🔍 Filter CSS Directorate Data", expanded=False):
         c1, c2, c3 = st.columns(3)
         with c1: search = st.text_input("Global Search")
         with c2: f_site = st.multiselect("Filter by Hospital", ["ORC", "NMGH", "Wythenshawe", "Trafford"])
         with c3: f_dept = st.multiselect("Filter by CSS Dept", sorted(list(df['Department'].unique())))
 
-    # Visibility Filter: If Site Lead, they see their site. If Audit Dept, they see ALL CSS sites.
     view_df = df.copy()
     if st.session_state['user_role'] == "Project Lead":
         view_df = view_df[view_df['Project_Lead'] == st.session_state['username']]
     elif st.session_state['user_role'] == "Site Lead":
         view_df = view_df[view_df['Site'] == st.session_state['user_site']]
-    # Audit/Q&S can see everything across the whole CSS directorate by default
     
     if search: view_df = view_df[view_df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)]
     if f_site: view_df = view_df[view_df['Site'].isin(f_site)]
@@ -116,7 +145,7 @@ with tab1:
         if not done_df.empty:
             st.dataframe(done_df, use_container_width=True, hide_index=True)
         else:
-            st.info("No completed CSS audits found in the archive.")
+            st.info("No completed CSS audits found.")
 
 with tab2:
     mode = st.radio("Task Selection:", ["Update Progress", "Register New CSS Audit"], horizontal=True)
@@ -138,7 +167,7 @@ with tab2:
                 if st.form_submit_button("Update Audit"):
                     df.loc[df["Audit_ID"] == target_id, ["Status", "Project_Lead_Update", "Site_Lead_Update", "Audit_Dept_Update", "QS_Update", "Last_Updated"]] = \
                         [new_stat, p_upd, s_upd, a_upd, q_upd, datetime.now().strftime("%d/%m/%Y %H:%M")]
-                    save_data(df); st.success(f"CSS Audit {target_id} Synchronized Across All Sites"); st.rerun()
+                    save_data(df); st.success("Database Updated"); st.rerun()
 
     else:
         st.subheader("📝 New CSS Audit Registration")
@@ -162,17 +191,17 @@ with tab2:
                 if approved == "Yes" and n_id:
                     new_row = [n_id, "Local", n_site, n_dept, app_name, n_title, date.today(), n_lead, n_sup, "Registered", "", n_due, "", "", "", "", datetime.now().strftime("%d/%m/%Y")]
                     df = pd.concat([df, pd.DataFrame([new_row], columns=COLUMNS)], ignore_index=True)
-                    save_data(df); st.success("Audit Registered to the CSS Directorate Database"); st.rerun()
+                    save_data(df); st.success("Audit Registered"); st.rerun()
 
 with tab3:
     st.subheader("📈 Directorate-Wide Analytics")
     if not view_df.empty:
         c1, c2 = st.columns(2)
         with c1:
-            st.plotly_chart(px.pie(view_df, names='Status', title="Overall CSS Audit Status Mix"), use_container_width=True)
+            st.plotly_chart(px.pie(view_df, names='Status', title="Overall Status Mix"), use_container_width=True)
         with c2:
-            st.plotly_chart(px.bar(view_df, x='Site', color='Status', title="Audit Distribution by Hospital Site"), use_container_width=True)
+            st.plotly_chart(px.bar(view_df, x='Site', color='Status', title="Audits by Site"), use_container_width=True)
 
 # Footer Safety
 backup_time = datetime.fromtimestamp(os.path.getmtime(RECOVERY_FILE)).strftime("%H:%M:%S") if os.path.exists(RECOVERY_FILE) else "N/A"
-st.markdown(f"--- \n ✅ **Directorate Health:** Active | 🛡️ **Shadow Copy:** {backup_time} | ⏳ **Timeout:** {SESSION_TIMEOUT_MINUTES}m")
+st.markdown(f"--- \n ✅ **Directorate Health:** Active | 🛡️ **Shadow Copy:** {backup_time} | ⏳ **Timeout:** {SESSION_TIMEOUT_MINUTES}m")      
